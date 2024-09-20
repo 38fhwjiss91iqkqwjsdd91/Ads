@@ -7,6 +7,9 @@ bot = telebot.TeleBot(API_TOKEN)
 # Словарь для хранения информации о постах пользователей
 user_posts = {}
 
+# Словарь для хранения групп, где бот является администратором
+admin_groups = {}
+
 # Проверка на администратора
 def is_admin(chat_id, user_id):
     chat_administrators = bot.get_chat_administrators(chat_id)
@@ -19,7 +22,6 @@ def is_admin(chat_id, user_id):
 def create_post(user_id, message):
     if user_id not in user_posts:
         user_posts[user_id] = []
-
     user_posts[user_id].append(message)
 
 # Команда /start
@@ -31,16 +33,26 @@ def send_welcome(message):
 @bot.message_handler(content_types=['text', 'photo', 'video', 'audio', 'voice', 'document', 'sticker'])
 def handle_message(message):
     user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    # Проверяем, администратор ли пользователь
+    if is_admin(chat_id, user_id):
+        # Если это первая встреча с чатом, добавляем его в admin_groups
+        if chat_id not in admin_groups:
+            admin_groups[chat_id] = message.chat.title
+            bot.send_message(chat_id, f"Группа '{message.chat.title}' добавлена для рассылки.")
 
-    # Сохраняем пост пользователя
-    create_post(user_id, message)
-
-    # Создаем инлайн-кнопки для выбора действия
-    markup = types.InlineKeyboardMarkup()
-    select_groups_button = types.InlineKeyboardButton(text="Выбрать группы для рассылки", callback_data="select_groups")
-    markup.add(select_groups_button)
-
-    bot.send_message(user_id, "Сообщение сохранено. Что будем делать дальше?", reply_markup=markup)
+        # Сохраняем пост пользователя
+        create_post(user_id, message)
+        
+        # Создаем инлайн-кнопки для выбора действия
+        markup = types.InlineKeyboardMarkup()
+        select_groups_button = types.InlineKeyboardButton(text="Выбрать группы для рассылки", callback_data="select_groups")
+        markup.add(select_groups_button)
+        
+        bot.send_message(user_id, "Сообщение сохранено. Что будем делать дальше?", reply_markup=markup)
+    else:
+        bot.send_message(user_id, "У вас нет прав администратора для этой группы.")
 
 # Обработка нажатий на инлайн-кнопки
 @bot.callback_query_handler(func=lambda call: True)
@@ -49,15 +61,14 @@ def handle_callback(call):
 
     if call.data == "select_groups":
         # Получаем список групп, где бот является администратором
-        groups = []  # Здесь можно подставить реальные ID групп или чатов, где бот админ
-
-        # Создаем кнопки для выбора групп
-        markup = types.InlineKeyboardMarkup()
-        for group in groups:
-            markup.add(types.InlineKeyboardButton(text=f"Группа {group}", callback_data=f"send_to_group_{group}"))
-
-        bot.send_message(user_id, "Выберите группы для рассылки:", reply_markup=markup)
-
+        if admin_groups:
+            markup = types.InlineKeyboardMarkup()
+            for group_id, group_title in admin_groups.items():
+                markup.add(types.InlineKeyboardButton(text=f"Группа: {group_title}", callback_data=f"send_to_group_{group_id}"))
+            bot.send_message(user_id, "Выберите группы для рассылки:", reply_markup=markup)
+        else:
+            bot.send_message(user_id, "Нет доступных групп для рассылки.")
+    
     elif call.data.startswith("send_to_group_"):
         group_id = call.data.split("_")[-1]
 
@@ -82,9 +93,9 @@ def handle_callback(call):
                         bot.send_sticker(group_id, post.sticker.file_id)
                 except Exception as e:
                     bot.send_message(user_id, f"Ошибка при отправке в группу {group_id}: {e}")
-
             bot.send_message(user_id, f"Посты успешно отправлены в группу {group_id}!")
         else:
             bot.send_message(user_id, "У вас нет сохраненных постов.")
 
+# Запуск бота
 bot.polling()
