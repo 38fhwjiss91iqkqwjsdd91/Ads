@@ -8,26 +8,7 @@ bot = telebot.TeleBot(API_TOKEN)
 user_posts = {}
 
 # Список групп, где бот является администратором
-admin_groups = {}
-
-# Функция для сохранения групп на диск
-def save_admin_groups():
-    with open('admin_groups.txt', 'w') as f:
-        for chat_id in admin_groups:
-            f.write(f"{chat_id}\n")
-
-# Функция для загрузки групп с диска
-def load_admin_groups():
-    try:
-        with open('admin_groups.txt', 'r') as f:
-            for line in f:
-                chat_id = int(line.strip())
-                admin_groups[chat_id] = chat_id
-    except FileNotFoundError:
-        pass
-
-# Загрузка групп при старте бота
-load_admin_groups()
+admin_groups = set()
 
 # Проверка на администратора
 def is_admin(chat_id, user_id):
@@ -42,8 +23,7 @@ def add_admin_group(chat_id):
     chat_administrators = bot.get_chat_administrators(chat_id)
     for admin in chat_administrators:
         if admin.user.id == bot.get_me().id:
-            admin_groups[chat_id] = chat_id
-            save_admin_groups()  # Сохраняем группы после добавления
+            admin_groups.add(chat_id)  # Добавляем ID группы в set
             return True
     return False
 
@@ -62,7 +42,7 @@ def send_welcome(message):
 @bot.message_handler(content_types=['text', 'photo', 'video', 'audio', 'voice', 'document', 'sticker'])
 def handle_message(message):
     user_id = message.from_user.id
-    # Если пользователь является администратором в группе, бот добавляет эту группу в список доступных
+    # Если сообщение в группе и бот администратор, добавляем группу в список
     if message.chat.type in ['group', 'supergroup']:
         if add_admin_group(message.chat.id):
             bot.send_message(user_id, f"Группа {message.chat.title} добавлена для рассылки!")
