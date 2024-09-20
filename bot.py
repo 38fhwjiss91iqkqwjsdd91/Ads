@@ -6,8 +6,7 @@ bot = telebot.TeleBot(API_TOKEN)
 
 # Словарь для хранения информации о постах пользователей
 user_posts = {}
-
-# Словарь для хранения групп, где бот является администратором
+# Список групп, где бот является администратором
 admin_groups = {}
 
 # Проверка на администратора
@@ -15,6 +14,15 @@ def is_admin(chat_id, user_id):
     chat_administrators = bot.get_chat_administrators(chat_id)
     for admin in chat_administrators:
         if admin.user.id == user_id:
+            return True
+    return False
+
+# Добавление группы, если бот администратор
+def add_admin_group(chat_id):
+    chat_administrators = bot.get_chat_administrators(chat_id)
+    for admin in chat_administrators:
+        if admin.user.id == bot.get_me().id:
+            admin_groups[chat_id] = chat_id
             return True
     return False
 
@@ -33,26 +41,21 @@ def send_welcome(message):
 @bot.message_handler(content_types=['text', 'photo', 'video', 'audio', 'voice', 'document', 'sticker'])
 def handle_message(message):
     user_id = message.from_user.id
-    chat_id = message.chat.id
-    
-    # Проверяем, администратор ли пользователь
-    if is_admin(chat_id, user_id):
-        # Если это первая встреча с чатом, добавляем его в admin_groups
-        if chat_id not in admin_groups:
-            admin_groups[chat_id] = message.chat.title
-            bot.send_message(chat_id, f"Группа '{message.chat.title}' добавлена для рассылки.")
 
-        # Сохраняем пост пользователя
-        create_post(user_id, message)
-        
-        # Создаем инлайн-кнопки для выбора действия
-        markup = types.InlineKeyboardMarkup()
-        select_groups_button = types.InlineKeyboardButton(text="Выбрать группы для рассылки", callback_data="select_groups")
-        markup.add(select_groups_button)
-        
-        bot.send_message(user_id, "Сообщение сохранено. Что будем делать дальше?", reply_markup=markup)
-    else:
-        bot.send_message(user_id, "У вас нет прав администратора для этой группы.")
+    # Если пользователь является администратором в группе, бот добавляет эту группу в список доступных
+    if message.chat.type in ['group', 'supergroup']:
+        if add_admin_group(message.chat.id):
+            bot.send_message(user_id, f"Группа {message.chat.title} добавлена для рассылки!")
+
+    # Сохраняем пост пользователя
+    create_post(user_id, message)
+
+    # Создаем инлайн-кнопки для выбора действия
+    markup = types.InlineKeyboardMarkup()
+    select_groups_button = types.InlineKeyboardButton(text="Выбрать группы для рассылки", callback_data="select_groups")
+    markup.add(select_groups_button)
+
+    bot.send_message(user_id, "Сообщение сохранено. Что будем делать дальше?", reply_markup=markup)
 
 # Обработка нажатий на инлайн-кнопки
 @bot.callback_query_handler(func=lambda call: True)
@@ -63,11 +66,12 @@ def handle_callback(call):
         # Получаем список групп, где бот является администратором
         if admin_groups:
             markup = types.InlineKeyboardMarkup()
-            for group_id, group_title in admin_groups.items():
-                markup.add(types.InlineKeyboardButton(text=f"Группа: {group_title}", callback_data=f"send_to_group_{group_id}"))
+            for group_id in admin_groups:
+                markup.add(types.InlineKeyboardButton(text=f"Группа {group_id}", callback_data=f"send_to_group_{group_id}"))
+
             bot.send_message(user_id, "Выберите группы для рассылки:", reply_markup=markup)
         else:
-            bot.send_message(user_id, "Нет доступных групп для рассылки.")
+            bot.send_message(user_id, "Бот не является администратором ни в одной группе.")
     
     elif call.data.startswith("send_to_group_"):
         group_id = call.data.split("_")[-1]
@@ -93,9 +97,9 @@ def handle_callback(call):
                         bot.send_sticker(group_id, post.sticker.file_id)
                 except Exception as e:
                     bot.send_message(user_id, f"Ошибка при отправке в группу {group_id}: {e}")
+
             bot.send_message(user_id, f"Посты успешно отправлены в группу {group_id}!")
         else:
             bot.send_message(user_id, "У вас нет сохраненных постов.")
 
-# Запуск бота
 bot.polling()
